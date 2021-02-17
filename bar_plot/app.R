@@ -132,14 +132,6 @@ sidebar = bs4DashSidebar(
             sliderInput("label_size",
                         "Asterisk/letter size",
                         1, 20, 1, value = 6),
-            selectInput("label_hjust",
-                        "X lab hjust:",
-                        choices = c(0, .5, 1),
-                        selected = 0.5), 
-            selectInput("label_vjust",
-                        "X lab vjust:",
-                        choices = c(0, .5, 1),
-                        selected = 0.5), 
             selectInput("label_angle",
                         "X lab angle:",
                         choices = c(0, 45, 90, -45),
@@ -264,7 +256,12 @@ server <- function(input, output,session) {
             prism_fill_pal(palette = "warm_and_sunny")(10),
             prism_fill_pal(palette = "black_and_white")(9)
         )
-        
+        label_just = case_when(
+            input$label_angle == 0 ~ c(.5,.5),
+            input$label_angle == 45 ~ c(1,1),
+            input$label_angle == -45 ~ c(0,1),
+            input$label_angle == 90 ~ c(1,.5)
+            )
 
 # 开始画图 --------------------------------------------------------------------
 
@@ -300,8 +297,8 @@ server <- function(input, output,session) {
                      fill = input$fill_lab)  + #xy title name
                 theme(axis.text.x = element_text(
                     angle = as.numeric(input$label_angle),
-                    hjust = as.numeric(input$label_hjust),
-                    vjust = as.numeric(input$label_vjust)
+                    hjust = as.numeric(label_just[1]),
+                    vjust = as.numeric(label_just[2])
                 ),
                 text = element_text(size = input$font_size)) #一点细节
             
@@ -355,8 +352,8 @@ server <- function(input, output,session) {
                     )  +
                     theme(axis.text.x = element_text(
                         angle = as.numeric(input$label_angle),
-                        hjust = as.numeric(input$label_hjust),
-                        vjust = as.numeric(input$label_vjust)
+                        hjust = as.numeric(label_just[1]),
+                        vjust = as.numeric(label_just[2])
                     ),
                     strip.background = element_blank(),
                     strip.text.x = element_blank(),
@@ -407,8 +404,8 @@ server <- function(input, output,session) {
                     scale_y_continuous(expand = expansion(mult = c(0, .1))) +
                     theme(axis.text.x = element_text(
                         angle = as.numeric(input$label_angle),
-                        hjust = as.numeric(input$label_hjust),
-                        vjust = as.numeric(input$label_vjust)
+                        hjust = as.numeric(label_just[1]),
+                        vjust = as.numeric(label_just[2])
                     ),
                     text = element_text(size = input$font_size)) 
                 if(input$facet_warp == "Yes") {p + 
