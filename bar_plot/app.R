@@ -72,8 +72,8 @@ sidebar = bs4DashSidebar(
         selectInput(
             "label",
             "Label:",
-            choices = c("False", "True"),
-            selected = "False"
+            choices = c("Asterisk", "Letter"),
+            selected = "Asterisk"
         )
     ),
     menuItem(
@@ -97,27 +97,19 @@ sidebar = bs4DashSidebar(
         )
     ),
     menuItem(
-        "Others",
-        icon = icon("question-circle"),
-        selectInput("facet_scale", "Facet scale", c("free", "fixed"))
+        "Facet",
+        icon = icon("border-all"),
+        selectInput("facet_warp", "Facet warp", c("Yes", "No")), 
+        selectInput("facet_scale", "Facet scale", c("free", "fixed")),
+        selectInput("facet_row", "Facet row", c("Null", 1:10)),
+        selectInput("facet_col", "Facet column", c("Null", 1:10))
     ))
 ), 
 
 # 主体 ----------------------------------------------------------------------
 
-# CSS修改一点点细节 --------------------------------------------------------------
-
     bs4DashBody(
-        tags$head(type = "text/css", tags$style(HTML(".main-sidebar li a span {color: white;font-size: 20px;}"))),
-        # tags$style(type = "text/css",
-        #            ".js-irs-0 .irs-grid-text:nth-child(n) {color: white}",
-        #            ".js-irs-0 .irs-grid-pol:nth-of-type(n) {background: white}",
-        #            ".js-irs-0 .irs-min {color: white}",
-        #            ".js-irs-0 .irs-max {color: white}",
-        #            ".js-irs-1 .irs-grid-text:nth-child(n) {color: white}",
-        #            ".js-irs-1 .irs-grid-pol:nth-of-type(n) {background: white}",
-        #            ".js-irs-1 .irs-min {color: white}",
-        #            ".js-irs-1 .irs-max {color: white}"),
+
 
 # 开始定义主体 ------------------------------------------------------------------
 
@@ -314,7 +306,7 @@ server <- function(input, output,session) {
                 text = element_text(size = input$font_size)) #一点细节
             
         } else {
-            if (input$label == "False") { 
+            if (input$label == "Asterisk") { 
                 #带星号标记t检验的facet barplot
                 stat.test <- dta_barplot %>%
                     group_by(key) %>%
@@ -348,7 +340,6 @@ server <- function(input, output,session) {
                         position = "identity",
                         width = input$bar_width / 3
                     ) +
-                    facet_wrap( ~ key, scales = input$facet_scale) +
                     scale_y_continuous(expand = expansion(mult = c(0, .1))) +
                     scale_fill_manual(values = mypal) +
                     coord_cartesian(ylim = c(as.double(input$y_limit), NA)) +
@@ -370,7 +361,20 @@ server <- function(input, output,session) {
                     strip.background = element_blank(),
                     strip.text.x = element_blank(),
                     text = element_text(size = input$font_size))
-                
+                if (input$facet_warp == "Yes") {
+                    p +
+                        facet_wrap(~ key,
+                                   scales = input$facet_scale, 
+                                   nrow = input$facet_row,
+                                   ncol = input$facet_col)
+                }
+                else {
+                    p +
+                        facet_wrap(
+                            ~ key,
+                            scales = input$facet_scale,
+                            nrow = 1)
+                }
             } else {
                 # group bars with label
                 p <- dta_barplot %>%
@@ -406,7 +410,11 @@ server <- function(input, output,session) {
                         hjust = as.numeric(input$label_hjust),
                         vjust = as.numeric(input$label_vjust)
                     ),
-                    text = element_text(size = input$font_size))
+                    text = element_text(size = input$font_size)) 
+                if(input$facet_warp == "Yes") {p + 
+                        facet_wrap( ~ key, scales = input$facet_scale, 
+                                    nrow = input$facet_row,
+                                    ncol = input$facet_col)} else {p}
             }
         }
     })
