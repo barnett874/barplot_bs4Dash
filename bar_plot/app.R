@@ -1,13 +1,22 @@
 
+# 安装package ---------------------------------------------------------------------
+
+packages=c("shiny","ggprism","htmltools","thematic","tidyverse","ggpubr","ggthemes","rstatix","DT","ggpubr", "ggsci", "agricolae")
+ipak <- function(pkg){
+    new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+    if (length(new.pkg)) 
+        install.packages(new.pkg, dependencies = TRUE, repos='https://mirrors.tuna.tsinghua.edu.cn/CRAN/' )
+    sapply(pkg, require, character.only = TRUE)
+}
+ipak(packages)
+devtools::install_github("RinteRface/bs4Dash")
 
 # 读入package ---------------------------------------------------------------
 
 library(shiny)
 library(bs4Dash)
 library(tidyverse)
-library(ggprism)
 library(ggpubr)
-library(tidyverse)
 library(ggthemes)
 library(rstatix)
 library(ggprism)
@@ -94,7 +103,12 @@ sidebar = bs4DashSidebar(
             "Line color:",
             c("Grey10", "Grey30", "Grey50", "Grey70", "Grey90", "black"),
             selected = "black"
-        )
+        ),
+        selectInput(
+            "bar_fill",
+            "Fill",
+            c("group", "key"), 
+            selected = "key")
     ),
     menuItem(
         "Facet",
@@ -132,6 +146,11 @@ sidebar = bs4DashSidebar(
             sliderInput("label_size",
                         "Asterisk/letter size",
                         1, 20, 1, value = 6),
+            selectInput(
+                "legend_position",
+                "Legend position",
+                c("right","top","bottom","none")
+            ),
             selectInput("label_angle",
                         "X lab angle:",
                         choices = c(0, 45, 90, -45),
@@ -170,7 +189,7 @@ server <- function(input, output,session) {
     observeEvent(input$import_data, {
         dta <- read_csv(input$import_data$datapath)
         updateSelectInput(session, "name", label = "Select", choices = colnames(dta))
-        updateSliderInput(session, "y_limit",label = "Y limits", 0, max(dta$value),.5, value = 0)
+        updateSliderInput(session, "y_limit",label = "Y limits", 0, max(dta %>% select(where(is.numeric))),.5, value = 0)
     })
 
 # 读取文件 --------------------------------------------------------------------
@@ -227,10 +246,17 @@ server <- function(input, output,session) {
                 posthoc.test$groups %>%
                 mutate(name = row.names(.)) %>%
                 separate(name, into = c("group", "key"), sep = ":") #合并结果
+        } else if (data() %>% distinct(group) %>% nrow() > 2) {
+            anova <- aov(value ~ group, dta_barplot) #ANOVA
+            posthoc.test <-
+                LSD.test(anova, c('group'), p.adj = 'bonferroni')
+            posthoc.test <-
+                posthoc.test$groups %>%
+                mutate(group = row.names(.),
+                       key = data() %>% distinct(key) %>% .$key)#合并结果
         }
         
 
-        
         #set theme
         switch(
             input$slider_theme,
@@ -274,8 +300,9 @@ server <- function(input, output,session) {
                 group_by(group) %>% #分组
                 mutate(SDPos = cumsum(rev(mean))) %>% #精髓的reverse + cumsum
                 left_join(., posthoc.test, by = c("group","key")) %>% 
-                ggplot(aes(x = group, y = mean, fill = key), color = input$line_color) + #做图
+                ggplot(aes(x = group, y = mean, fill = key)) + #做图
                 geom_bar(
+                    color = input$line_color,
                     stat = "identity",
                     width = input$bar_width,
                     position = position_stack(input$bar_gap)
@@ -300,6 +327,7 @@ server <- function(input, output,session) {
                     hjust = as.numeric(label_just[1]),
                     vjust = as.numeric(label_just[2])
                 ),
+                legend.position = input$legend_position,
                 text = element_text(size = input$font_size)) #一点细节
             
         } else {
@@ -309,6 +337,8 @@ server <- function(input, output,session) {
                     group_by(key) %>%
                     t_test(value ~ group) #遇事不决t检验
                 stat.test <- stat.test %>%
+                    adjust_pvalue(method = "bonferroni") %>% 
+                    add_significance("p.adj") %>% 
                     mutate(p.signif = p,
                            p.signif = case_when(
                                p.signif <= 0.0001 ~ "****",
@@ -318,15 +348,21 @@ server <- function(input, output,session) {
                                p.signif > 0.05~"ns"
                            )
                     ) #不知道为什么当数据只有两组会没有p signif，这里手动写一下。
-                stat.test <- stat.test %>% add_y_position(fun = "mean_sd") #给标签加上位置信息
+                stat.test <- stat.test %>% 
+                    add_xy_position(fun = "mean_sd", 
+                                    x = "group", 
+                                    dodge = input$bar_gap) #给标签加上位置信息
                 
                 # facet bars with asterisks
                 p <- dta_barplot %>%
                     group_by(group, key) %>% #嗨呀，跟上个图一样
                     summarise_each(funs(mean,
                                         sd)) %>%
-                    ggplot(aes(x = group, y = mean, fill = key)) +
+                    ungroup() %>% 
+                    ggplot(aes(x = group, y = mean)) +
                     geom_bar(
+                        color = input$line_color,
+                        aes_string(fill = input$bar_fill),
                         stat = "identity",
                         width = input$bar_width,
                         color = input$line_color,
@@ -355,8 +391,7 @@ server <- function(input, output,session) {
                         hjust = as.numeric(label_just[1]),
                         vjust = as.numeric(label_just[2])
                     ),
-                    strip.background = element_blank(),
-                    strip.text.x = element_blank(),
+                    legend.position = input$legend_position,
                     text = element_text(size = input$font_size))
                 if (input$facet_warp == "Yes") {
                     p +
@@ -379,18 +414,22 @@ server <- function(input, output,session) {
                     summarise_each(funs(mean,
                                         sd)) %>%
                     left_join(., posthoc.test, by = c("group","key")) %>% #懒得注释了，连字母都是从前面扒的
-                    ggplot(aes(x = group, y = mean, fill = key)) +
+                    ggplot(aes_string(x = "group", y = "mean", fill = input$bar_fill)) +
                     geom_bar(
+                        color = input$line_color,
                         stat = "identity",
                         position = position_dodge(input$bar_gap),
                         width = input$bar_width,
                         color = input$line_color
                     ) +
-                    geom_text(aes(label = groups, y = mean + sd * 2),
-                              position = position_dodge(input$bar_gap),
-                              vjust = 0,
-                              size = input$label_size,
-                              fontface = "bold") +
+                    geom_text(
+                        aes(label = groups,
+                                   y = mean + sd * 2), 
+                        position = position_dodge(input$bar_gap),
+                        vjust = 0,
+                        size = input$label_size,
+                        fontface = "bold"
+                    )+
                     geom_errorbar(
                         aes(ymax = mean + sd, ymin = mean - sd),
                         position = position_dodge(input$bar_gap),
@@ -407,6 +446,7 @@ server <- function(input, output,session) {
                         hjust = as.numeric(label_just[1]),
                         vjust = as.numeric(label_just[2])
                     ),
+                    legend.position = input$legend_position,
                     text = element_text(size = input$font_size)) 
                 if(input$facet_warp == "Yes") {p + 
                         facet_wrap( ~ key, scales = input$facet_scale, 
@@ -480,10 +520,15 @@ server <- function(input, output,session) {
         out <- posthoc.test$groups %>% mutate(group = row.names(.)) %>% select(-value)
         dta_sum %>% left_join(.,out, by = "group") %>% 
             ggplot(aes(x = group, y = mean)) + #画图嘛，都差不多
-            geom_bar(stat = "identity", width = input$bar_width, 
-                     color = input$line_color, 
-                     fill = mypal[1],
-                     position = position_dodge(input$bar_gap)) +
+            geom_bar(
+                color = input$line_color,
+                aes_string(fill = input$bar_fill),
+                stat = "identity",
+                width = input$bar_width,
+                color = input$line_color,
+                fill = mypal[1],
+                position = position_dodge(input$bar_gap)
+            ) +
             geom_errorbar(aes(ymax = mean + sd, ymin = mean - sd),
                           position = "identity",
                           width = input$bar_width / 3) +
@@ -521,6 +566,5 @@ server <- function(input, output,session) {
         }
     )
 }
-
 
 shinyApp(ui, server)
