@@ -1,15 +1,15 @@
 
 # 安装package ---------------------------------------------------------------------
-
-packages=c("shiny","ggprism","htmltools","thematic","tidyverse","ggpubr","ggthemes","rstatix","DT","ggpubr", "ggsci", "agricolae")
-ipak <- function(pkg){
-    new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
-    if (length(new.pkg)) 
-        install.packages(new.pkg, dependencies = TRUE, repos='https://mirrors.tuna.tsinghua.edu.cn/CRAN/' )
-    sapply(pkg, require, character.only = TRUE)
-}
-ipak(packages)
-devtools::install_github("RinteRface/bs4Dash")
+# 
+# packages=c("shiny","ggprism","htmltools","thematic","tidyverse","ggpubr","ggthemes","rstatix","DT","ggpubr", "ggsci", "agricolae")
+# ipak <- function(pkg){
+#     new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+#     if (length(new.pkg)) 
+#         install.packages(new.pkg, dependencies = TRUE, repos='https://mirrors.tuna.tsinghua.edu.cn/CRAN/' )
+#     sapply(pkg, require, character.only = TRUE)
+# }
+# ipak(packages)
+# devtools::install_github("RinteRface/bs4Dash")
 
 # 读入package ---------------------------------------------------------------
 
@@ -238,22 +238,37 @@ server <- function(input, output,session) {
         if(is.null(data())) {dta_barplot <- df} #又不是不能用
         
         dta_barplot <- data() #真正的读入数据
-        if (data() %>% distinct(key) %>% nrow() > 1) {
+        if (dta_barplot %>% distinct(group) %>% nrow() > 2) {
+            
+            key_name <- dta_barplot %>% distinct(key) %>% .$key
+            posthoc <- data.frame(
+                value = double(),
+                groups = character(),
+                key = character(),
+                group = character(),
+                stringsAsFactors = FALSE
+            )
+            
+            for (i in 1:length(key_name)) {
+                anova <- dta_barplot %>%
+                    filter(key == key_name[i]) %>%
+                    aov(value ~ group, .)
+                posthoc.test <- anova %>%
+                    LSD.test(., "group", p.adj = 'bonferroni')
+                posthoc <- posthoc.test$groups %>%
+                    mutate(key = key_name[i],
+                           group = rownames(.)) %>%
+                    bind_rows(., posthoc)
+            } #合并结果
+        } else if (dta_barplot %>% distinct(key) %>% nrow() > 2) {
             anova <- aov(value ~ group + key, dta_barplot) #ANOVA
             posthoc.test <-
-                LSD.test(anova, c('group', 'key'), p.adj = 'bonferroni') #Post hoc
-            posthoc.test <-
+                LSD.test(anova, c('group', 'key'), p.adj = 'bonferroni') 
+            
+            posthoc <-
                 posthoc.test$groups %>%
                 mutate(name = row.names(.)) %>%
                 separate(name, into = c("group", "key"), sep = ":") #合并结果
-        } else if (data() %>% distinct(group) %>% nrow() > 2) {
-            anova <- aov(value ~ group, dta_barplot) #ANOVA
-            posthoc.test <-
-                LSD.test(anova, c('group'), p.adj = 'bonferroni')
-            posthoc.test <-
-                posthoc.test$groups %>%
-                mutate(group = row.names(.),
-                       key = data() %>% distinct(key) %>% .$key)#合并结果
         }
         
 
@@ -299,7 +314,7 @@ server <- function(input, output,session) {
                                     sd)) %>% #计算均值，标准差
                 group_by(group) %>% #分组
                 mutate(SDPos = cumsum(rev(mean))) %>% #精髓的reverse + cumsum
-                left_join(., posthoc.test, by = c("group","key")) %>% 
+                left_join(., posthoc, by = c("group","key")) %>% 
                 ggplot(aes(x = group, y = mean, fill = key)) + #做图
                 geom_bar(
                     color = input$line_color,
@@ -395,17 +410,17 @@ server <- function(input, output,session) {
                     text = element_text(size = input$font_size))
                 if (input$facet_warp == "Yes") {
                     p +
-                        facet_wrap(~ key,
-                                   scales = input$facet_scale, 
-                                   nrow = input$facet_row,
-                                   ncol = input$facet_col)
-                }
-                else {
-                    p +
                         facet_wrap(
                             ~ key,
                             scales = input$facet_scale,
-                            nrow = 1)
+                            nrow = input$facet_row,
+                            ncol = input$facet_col
+                        )
+                }
+                else {
+                    p + facet_wrap(~ key,
+                                   scales = "fixed",
+                                   nrow = 1)
                 }
             } else {
                 # group bars with label
@@ -413,8 +428,8 @@ server <- function(input, output,session) {
                     group_by(group, key) %>%
                     summarise_each(funs(mean,
                                         sd)) %>%
-                    left_join(., posthoc.test, by = c("group","key")) %>% #懒得注释了，连字母都是从前面扒的
-                    ggplot(aes_string(x = "group", y = "mean", fill = input$bar_fill)) +
+                    left_join(., posthoc, by = c("group","key")) %>% #懒得注释了，连字母都是从前面扒的
+                    ggplot(aes_string(x = "group", y = "mean",group = "key", fill = input$bar_fill)) +
                     geom_bar(
                         color = input$line_color,
                         stat = "identity",
@@ -448,10 +463,15 @@ server <- function(input, output,session) {
                     ),
                     legend.position = input$legend_position,
                     text = element_text(size = input$font_size)) 
-                if(input$facet_warp == "Yes") {p + 
-                        facet_wrap( ~ key, scales = input$facet_scale, 
-                                    nrow = input$facet_row,
-                                    ncol = input$facet_col)} else {p}
+                if (input$facet_warp == "Yes") {
+                    p +
+                        facet_wrap(
+                            ~ key,
+                            scales = input$facet_scale,
+                            nrow = input$facet_row,
+                            ncol = input$facet_col
+                        )
+                } else { p }
             }
         }
     })
