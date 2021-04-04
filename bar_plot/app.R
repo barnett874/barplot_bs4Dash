@@ -213,8 +213,8 @@ server <- function(input, output,session) {
                 rename("group" = input$name) #改个名
         }
         
-        data$group <- as.factor(data$group) #以防万一
-        data$key <- as.factor(data$key) #以防万一 again
+        data$group <- factor(data$group, levels = data$group) #以防万一
+        data$key <- factor(data$key, levels = data$key) #以防万一 again
         data <- data %>%
             drop_na(value) #以防万一 again and again
     })
